@@ -7,6 +7,7 @@ class Chip8{
         unsigned char Reg[16];          //15 registers [V00-V15]; Additional Carry bit
         unsigned short I;               //Index register
         unsigned short pc;              //Program Counter
+        unsigned short stack[16];       //Chip Stack
 
         /*  MEMORY LAYOUT
             0x000 - 0x1FF => CHIP 8 Interpreter
@@ -51,18 +52,75 @@ class Chip8{
         // Extra variable to control data;
             unsigned int soundPlay = 00;
 
-        void decode(unsigned oc){
-            switch(oc & 0xF000)
+        void decode(unsigned op){
+
+            // Operations
+            unsigned short A = op & 0xF000;             // Instruction op
+            unsigned short B = (op & 0x0F00) >> 8;      // x register
+            unsigned short C = (op & 0x00F0) >> 4;      // y register
+            unsigned short D = op & 0x000F;             // nibble
+            unsigned short kk = op & 0x00FF;            //byte
+            unsigned short nnn = op & 0x0FFF;           // address
+
+            switch(op & 0xF000)
             {
-                case 0xA000:
-                    I = oc & 0x0FFF;
+                case 0x0000:
+                    switch(op & 0x00FF){
+                        case 0x00E0:                // Graphics buffer clear | CLS
+                            for(int i =0; i<2048;i++) 
+                                gfx[i] = 0;
+                            pc+=2;
+                            break;
+
+                        case 0x00EE:                // Return from subroutine | RET
+                            sp--;               
+                            pc = stack[sp];
+                            stack[sp]=0;
+                            break;
+                        
+                        default:                    // Default program counter addition
+                            pc+=2;
+                            break;
+                    }
+                    break;
+                
+                case 0x1000:                        // Set program counter to 0x1(Address) | JP addr
+                    pc = nnn;
+                    break;
+                
+                case 0x2000:                        // Increment stack adder | CALL addr
+                    stack[sp] = pc + 2;
+                    sp++;
+                    pc=nnn;
+                    break;
+                
+                case 0x3000:                        //Compares Vx to kk; on equal skips next instruction | SE Vx, byte
+                    pc += (Reg[B] == kk) ? 4:2;
+                    break;
+                
+                case 0x4000:                        //Compares Vx to kk; on not equal skips next instruction | SE Vx, byte
+                    pc += (Reg[B] != kk) ? 4:2;
+                    break;
+                
+                case 0x5000:                        //Compares Vx to Vy; on equal skips next instruction | SE Vx, Vy
+                    pc += (Reg[B] == Reg[C]) ? 4:2;
+                    break;
+                
+                case 0x6000:                        // Set Vx = kk | SE Vx, Vy
+                    Reg[B] = kk;
+                    pc += 2;
+                    break;
+                
+                case 0xA000:                        //ANNN : LD I, addr
+                    I = op & 0x0FFF;
                     pc += 2;
                     break;
 
 
                 default:
-                    setvbuf(stdout, nullptr, _IONBF, 0);
-                    puts("Opcode error");
+                    printf("OP ERROR: 0x%04X at PC=0x%03X", op, pc);
+                    pc+=2;
+                    break;
             }
         }
 
@@ -75,14 +133,23 @@ class Chip8{
 
         /// Initialize Emulator
         void init(){
-            pc = 0x200;     // Reset Program Counter
-            opcode = 0;     // Reset current op code
-            I = 0;          // Reset Current Index Pointer
-            sp = 0;         // Reset Current Stack Pointer
 
+            // Clear Registers
+            for (int i = 0; i < 4096; i++) memory[i] = 0;
+            for (int i = 0; i < 16; i++) Reg[i] = key[i] = 0;
+            for (int i = 0; i < 2048; i++) gfx[i] = 0;
+            for (int i = 0; i < 16; i++) stack[i] = 0;
 
-            for (int i=0; i < 80; i++){             // Fontset size (5 * 16) = 80 bits
-                memory[i]  = chip8_fontset[i];      //Loads Font into the memory
+            pc = 0x200;                                 // Reset Program Counter
+            opcode = 0;                                 // Reset current op code
+            I = 0;                                      // Reset Current Index Pointer
+            sp = 0;                                     // Reset Current Stack Pointer
+
+            delay_timer = 0;                            // Reset delay timer
+            sound_timer = 0;                            // Reset sound timer
+
+            for (int i=0; i < 80; i++){                 // Fontset size (5 * 16) = 80 bits
+                memory[80 + i]  = chip8_fontset[i];     //Loads Font into the memory after initial 80 bytes
             }
         }
 
@@ -96,7 +163,15 @@ class Chip8{
             }
             if(sound_timer > 0){
                 soundPlay = 01;
+                printf("BEEP\n");
                 --sound_timer;
+            }
+        }
+
+        /// Load the program
+        void loadProgram(unsigned char* buf, int size){
+            for(int i = 0; i< size; i++){
+                memory[512+i] = buf[i];         //Load the rom's data into memory after inital 512bits
             }
         }
 
