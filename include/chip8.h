@@ -1,4 +1,7 @@
 #include <cstdio>
+#include <cstdlib>
+#include <ctime>
+
 class Chip8{
     private:
         //  CPU Specification
@@ -15,8 +18,10 @@ class Chip8{
             0x200 - 0xFFF => Program 
         */
 
-        //  Graphics Layout
+        //  Graphics
         unsigned char gfx[2048];        // 1bit [Black And White], 64x32 = 2048p;
+        bool drawFlag = false;          // Sets the state to draw in screen
+        
 
         //  Timers
         unsigned char delay_timer;      //Event timer for games
@@ -66,13 +71,13 @@ class Chip8{
             {
                 case 0x0000:
                     switch(op & 0x00FF){
-                        case 0x00E0:                // Graphics buffer clear | CLS
+                        case 0xE0:                // Graphics buffer clear | CLS
                             for(int i =0; i<2048;i++) 
                                 gfx[i] = 0;
                             pc+=2;
                             break;
 
-                        case 0x00EE:                // Return from subroutine | RET
+                        case 0xEE:                // Return from subroutine | RET
                             sp--;               
                             pc = stack[sp];
                             stack[sp]=0;
@@ -110,15 +115,120 @@ class Chip8{
                     Reg[B] = kk;
                     pc += 2;
                     break;
+
+                case 0x7000:                        // Add kk to Vx | SE Vx, byte
+                    Reg[B] = Reg[B]+kk;
+                    pc += 2;
+                    break;
+
+                case 0x8000:
+                    switch(D){
+                        case 0x0:                   // Set Vx = Vy | LD Vx, Vy
+                            Reg[B] = Reg[C];
+                            break;
+                        case 0x1:                   // Performs OR between reg X, Y | OR Vx, Vy
+                            Reg[B] = Reg[B] | Reg[C];
+                            break;
+                        case 0x2:                   // Performs AND between reg X, Y | AND Vx, Vy
+                            Reg[B] = Reg[B] & Reg[C];
+                            break;
+                        case 0x3:                   // Performs XOR between reg X, Y | XOR Vx, Vy
+                            Reg[B] = Reg[B] ^ Reg[C];
+                            break;
+                        case 0x4:{                  // Performs Addition reg X, Y | ADD Vx, Vy
+                            unsigned short sum = Reg[B] + Reg[C];
+                            Reg[0xF] = (sum>255);   // carry bit
+                            Reg[B] = sum & 0xFF;    // 8 bits
+                            break;
+                        }
+                        case 0x5:                   // Performs Subtraction reg X, Y | SUB Vx, Vy
+                            Reg[0xF] = (Reg[B] > Reg[C]); // Do not borrow 
+                            Reg[B] = Reg[B] - Reg[C];
+                            break;
+                        case 0x6:                   // Set Vx = Vx SHR 1 | SHR Vx {, Vy}
+                            Reg[0xF] = Reg[B] & 0x1;
+                            Reg[B] >>= 1;
+                            break;
+                        case 0x7:                   // Set Vx = Vy - Vx, set VF = NOT borrow. | SUBN Vx, Vy
+                            Reg[0xF] = (Reg[C] > Reg[B]) ? 1:0;
+                            Reg[B] = Reg[C] - Reg[B];
+                            break;
+                        case 0xE:                   // Set Vx = Vy - Vx, set VF = NOT borrow. | SUBN Vx, Vy
+                            Reg[0xF] = (Reg[B] & 0x80) >> 7; // MSB before shift
+                            Reg[B] <<= 1;
+                            break;
+                    }
+                    pc += 2;
+                    break;
+                
+                case 0x9000:                        // Skip next instruction if Vx != Vy | SNE Vx, Vy
+                    if(D == 0 && Reg[B] != Reg[C]){
+                        pc+=4;
+                    }
+                    else{
+                        pc+=2;
+                    }
+                    break;
                 
                 case 0xA000:                        //ANNN : LD I, addr
                     I = op & 0x0FFF;
                     pc += 2;
                     break;
+                
+                case 0xB000:                        // Jump to location nnn + V0.
+                    pc = nnn+Reg[0];
+                    break;
 
+                case 0xC000: {                      // Set Vx = random byte AND kk.
+                    unsigned char random_byte = rand() & 0xFF;  // generates a random number from 0 to 255
+                    Reg[B] = random_byte & kk;
+                    pc+=2;
+                    break;
+                }
+                
+                case 0xD000:{
+                    /*
+                    The interpreter reads n bytes from memory, starting at the address stored in I.
+                    These bytes are then displayed as sprites on screen at coordinates (Vx, Vy).
+                    Sprites are XORed onto the existing screen. If this causes any pixels to be 
+                    erased, VF is set to 1, otherwise it is set to 0. If the sprite is positioned so 
+                    part of it is outside the coordinates of the display, it wraps around to the 
+                    opposite side of the screen.
+                    */
+
+                    drawFlag = true;
+
+                    unsigned char x = Reg[B] % 64;              // X axis resets after 64 pixels
+                    unsigned char y = Reg[C] % 32;              // Y axis resets after 32 pixels
+                    unsigned char height = D;
+
+                    Reg[0xF] = 0;                               // Clears VF 
+
+                    for(int yl = 0 ; yl < height; yl++){        // Draws y line till the sprite reaches height
+                        
+                        unsigned char spriteBytes = memory[I + yl];  // Reads sprite from memory
+                        
+                        for( int xl = 0; xl < 8; xl++){
+                                if((spriteBytes & (0x80 >> xl)) != 0){  // Reads bits left to right
+                                    int xPos = (x+xl) % 64;     // Sets X Axis 
+                                    int yPos = (y+yl) % 32;     // Sets Y Axis 
+                                    int index = yPos * 64 + xPos;
+
+                                    if(gfx[index] == 1){        // Collision Detection
+                                        Reg[0xF] = 1;           // Carry graphics
+                                    }
+
+                                    gfx[index] ^=1;             // Toggle Pixels
+                                }
+                        }
+                    }
+
+                    pc+= 2;
+                    break;
+                }
 
                 default:
-                    printf("OP ERROR: 0x%04X at PC=0x%03X", op, pc);
+                    printf("OP ERROR: 0x%04X at PC=0x%03X\n", op, pc);
                     pc+=2;
                     break;
             }
@@ -133,6 +243,9 @@ class Chip8{
 
         /// Initialize Emulator
         void init(){
+            
+            // Generate random seed
+            srand(time(nullptr));
 
             // Clear Registers
             for (int i = 0; i < 4096; i++) memory[i] = 0;
@@ -175,5 +288,34 @@ class Chip8{
             }
         }
 
+        /// @brief  load the rom
+        /// @param filename 
+        /// @return 
+        bool loadROM(const char* filename) {
+            FILE* f = fopen(filename, "rb");
+            if (!f) return false;
+
+            fseek(f, 0, SEEK_END);
+            long size = ftell(f);
+            rewind(f);
+
+            if (size <= 0 || size > (4096 - 0x200)) {
+                fclose(f);
+                return false;
+            }
+
+            size_t read = fread(&memory[0x200], 1, (size_t)size, f);
+            fclose(f);
+
+            return read == (size_t)size;
+        }
+
+        const unsigned char* getGfx() const { return gfx; }         // Get Graphics
+        bool shouldDraw() const { return drawFlag; }                // Get Draw Flag
+        void clearDrawFlag() { drawFlag = false; }                  // Set Draw Flag to false
+
+        void setKey(unsigned idx, unsigned char pressed) {          // Key Press (CHATGPT FOR NOW, WILL REPLACE LATER)
+            if (idx < 16) key[idx] = pressed;
+        }
 };
 
