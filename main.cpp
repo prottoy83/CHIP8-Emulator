@@ -85,8 +85,10 @@ int main()
 
         emulator.nextCycle();
 
-        // For now just redraw every loop (later use drawFlag)
-        renderChip8(renderer, texture, emulator.getGfx());
+        if(emulator.shouldDraw()){
+            renderChip8(renderer, texture, emulator.getGfx());
+            emulator.clearDrawFlag();
+        }
 
         SDL_Delay(1);
     }
