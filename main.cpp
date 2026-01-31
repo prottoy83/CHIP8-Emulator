@@ -67,7 +67,7 @@ int main()
 
     emulator.init();
 
-    if (!emulator.loadROM("roms/Pong.ch8")) {
+    if (!emulator.loadROM("roms/Sierpinski.ch8")) {
         std::cerr << "Failed to load ROM\n";
         SDL_DestroyTexture(texture);
         SDL_DestroyRenderer(renderer);
@@ -90,7 +90,7 @@ int main()
             emulator.clearDrawFlag();
         }
 
-        SDL_Delay(1);
+        SDL_Delay(0);
     }
 
     SDL_DestroyTexture(texture);

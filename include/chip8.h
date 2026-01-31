@@ -227,6 +227,87 @@ class Chip8{
                     break;
                 }
 
+                case 0xE000:
+                    switch(op & 0x00FF){
+                        case 0x9E:                              // Skip next instruction if key with the value of Vx is pressed | SKP Vx
+                            if(key[Reg[B]])
+                                pc += 4;
+                            else pc += 2;
+                            break;
+                        
+                        case 0xA1:                              // Skip next instruction if key with the value of Vx is not pressed | SKNP Vx
+                            if(!key[Reg[B]])
+                                pc += 4;
+                            else pc += 2;
+                            break;
+                    }
+                    break;
+                
+                case 0xF000:
+                    switch(op & 0x00FF){
+                        case 0x07:                              // Set Vx = delay timer value. | Fx0A - LD Vx, K
+                            Reg[B] = delay_timer;
+                            pc+=2;
+                            break;
+                        case 0x0A:{                              // Wait for a key press, store the value of the key in Vx. | Fx0A - LD Vx, K
+                            bool keyPress = false;
+                            for(int i=0;i<16;i++){
+                                if(key[i]){
+                                    Reg[B] = i;
+                                    keyPress = true;
+                                    break;
+                                }
+                            }
+                            if(keyPress) pc+=2;
+                            break;
+                        }
+
+                        case 0x15:                              // Set delay timer = Vx.
+                            delay_timer = Reg[B];
+                            pc+=2;
+                            break;
+
+                        case 0x18:                              // Set delay timer = Vx.
+                            sound_timer = Reg[B];
+                            pc+=2;
+                            break;
+                        
+                        case 0x1E:                              // The values of I and Vx are added.
+                            I = I + Reg[B];    
+                            pc+=2;
+                            break;
+                        
+                        case 0x29:
+                            I = 80 + (Reg[B]* 5);               // Set location of I to the location of Sprite
+                            pc+=2;
+                            break;
+                        
+                        case 0x33:{                             // LD B, Vx (BCD)
+                            unsigned char value = Reg[B];
+                            memory[I]     = value / 100;
+                            memory[I + 1] = (value / 10) % 10;
+                            memory[I + 2] = value % 10;
+                            pc += 2;
+                            break;
+                        }
+
+                        case 0x55:                              // Store registers V0 through Vx in memory starting at location I 
+                            for(int i=0;i<=B;i++){
+                                memory[I + i] = Reg[i];
+                            }
+                            pc += 2;
+                            break;
+                        
+                        case 0x65:                              // Read registers V0 through Vx from memory starting at location I.
+                            for(int i=0;i<=B;i++){
+                                Reg[i] = memory[I+i];
+                            }
+                            pc += 2;
+                            break;
+                    }
+                    break;
+                    
+
                 default:
                     printf("OP ERROR: 0x%04X at PC=0x%03X\n", op, pc);
                     pc+=2;
